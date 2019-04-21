@@ -59,8 +59,7 @@ class OutputParser:
             line = line.decode().strip()
 
             print(line)
-
-            line = line.strip()
+            
             m = _RE_OUTPUT_LINE.match(line)
 
             self._waiters = [w for w in self._waiters if not w.try_resolve(m.group("message"))]

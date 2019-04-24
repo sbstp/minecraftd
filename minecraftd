@@ -12,8 +12,10 @@ from signal import SIG_IGN, SIGINT, SIGTERM, signal
 
 _RE_OUTPUT_LINE = re.compile(r"^(?P<time>\[[\d\:]+\])\s*(?P<thread>\[[^\]]*\])\:\s*(?P<message>(.+))$")
 _RE_OUTPUT_LOADING_DONE = re.compile(r"^Done\s\([\d\.]+s\)!.*", re.IGNORECASE)
-_RE_OUTPUT_SAVING_OFF_DONE = re.compile(r"Automatic saving is now disabled", re.IGNORECASE)
-_RE_OUTPUT_SAVING_ON_DONE = re.compile(r"Automatic saving is now enabled", re.IGNORECASE)
+_RE_OUTPUT_SAVING_OFF_DONE = re.compile(
+    r"(Automatic saving is now disabled|Saving is already turned off)", re.IGNORECASE
+)
+_RE_OUTPUT_SAVING_ON_DONE = re.compile(r"(Automatic saving is now enabled|Saving is already turned on)", re.IGNORECASE)
 _RE_OUTPUT_SAVING_DONE = re.compile(r"Saved the game", re.IGNORECASE)
 
 logging.basicConfig(level=logging.INFO)
@@ -129,10 +131,6 @@ class BackupTask(BaseTask):
         await inf.send_cmd("save-off")
         await w.wait()
 
-        w = op.add_waiter(_RE_OUTPUT_SAVING_DONE)
-        await inf.send_cmd("save-all flush")
-        await w.wait()
-
         def backup():
             logger.info("backup started")
 
@@ -234,9 +232,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("-w", "--world-path", dest="world_path", help="directory where the world is", default=None)
 
+    parser.add_argument("-o", dest="opts", nargs="*", default=[], help="Additional arguments to the JVM")
+
     args = parser.parse_args()
 
-    args_list = ["/usr/bin/java", "-XX:+UseConcMarkSweepGC", "-Xms1g", "-server", "-jar", args.jar_path, "nogui"]
+    args_list = ["/usr/bin/java", "-server", "-XX:MaxGCPauseMillis=100"] + args.opts + ["-jar", args.jar_path, "nogui"]
+    logger.info("spawning minecraft: %s", args_list)
 
     asyncio.get_event_loop().run_until_complete(
         spawn(args_list, args.backup_interval, args.backup_path, args.world_path)

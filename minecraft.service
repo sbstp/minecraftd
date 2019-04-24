@@ -1,0 +1,12 @@
+[Unit]
+After=network-online.service
+
+[Service]
+Type=simple
+ExecStart=/home/minecraft/minecraftd/minecraftd -j /home/minecraft/world/server.jar -b /home/minecraft/backup -w /home/minecraft/world -i 3600
+User=minecraft
+Group=minecraft
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

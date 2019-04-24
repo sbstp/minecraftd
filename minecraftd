@@ -57,7 +57,9 @@ class OutputParser:
                 break
 
             line = line.decode().strip()
-            print(line)
+            sys.stdout.write(line)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
 
             m = _RE_OUTPUT_LINE.match(line)
 
@@ -234,7 +236,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    args_list = ["/usr/bin/java", "-server", "-jar", args.jar_path, "nogui"]
+    args_list = ["/usr/bin/java", "-XX:+UseConcMarkSweepGC", "-Xms1g", "-server", "-jar", args.jar_path, "nogui"]
 
     asyncio.get_event_loop().run_until_complete(
         spawn(args_list, args.backup_interval, args.backup_path, args.world_path)

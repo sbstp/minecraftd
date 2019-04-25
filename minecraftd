@@ -232,11 +232,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("-w", "--world-path", dest="world_path", help="directory where the world is", default=None)
 
-    parser.add_argument("-o", dest="opts", nargs="*", default=[], help="Additional arguments to the JVM")
+    parser.add_argument("-o", dest="opts", default=[], action="append", help="Additional arguments to the JVM")
 
     args = parser.parse_args()
 
-    args_list = ["/usr/bin/java", "-server", "-XX:MaxGCPauseMillis=100"] + args.opts + ["-jar", args.jar_path, "nogui"]
+    args_list = ["/usr/bin/java", "-server"] + args.opts + ["-jar", args.jar_path, "nogui"]
     logger.info("spawning minecraft: %s", args_list)
 
     asyncio.get_event_loop().run_until_complete(

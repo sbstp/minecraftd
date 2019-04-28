@@ -16,10 +16,26 @@ _RE_OUTPUT_SAVING_OFF_DONE = re.compile(
     r"(Automatic saving is now disabled|Saving is already turned off)", re.IGNORECASE
 )
 _RE_OUTPUT_SAVING_ON_DONE = re.compile(r"(Automatic saving is now enabled|Saving is already turned on)", re.IGNORECASE)
-_RE_OUTPUT_SAVING_DONE = re.compile(r"Saved the game", re.IGNORECASE)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("minecraftd")
+
+
+class Config:
+    def __init__(self, *, backup_path, backup_interval, world_path=None, jar_path=None, opts=None):
+        if world_path is None:
+            world_path = os.getcwd()
+        if jar_path is None:
+            jar_path = os.path.join(world_path, "server.jar")
+        if opts is None:
+            opts = []
+
+        self.backup_path = backup_path
+        self.backup_interval = backup_interval
+        self.world_path = world_path
+        self.jar_path = jar_path
+
+        self.args = ["/usr/bin/java", "-server"] + args.opts + ["-jar", jar_path, "nogui"]
 
 
 class Waiter:
@@ -121,10 +137,9 @@ class BackupTask(BaseTask):
     creating the backup and then turning auto-save back on.
     """
 
-    def __init__(self, backup_path, world_path):
+    def __init__(self, config: Config):
         super().__init__()
-        self._backup_path = backup_path
-        self._world_path = world_path
+        self.config = config
 
     async def execute(self, inf: InputFormatter, op: OutputParser):
         w = op.add_waiter(_RE_OUTPUT_SAVING_OFF_DONE)
@@ -135,14 +150,17 @@ class BackupTask(BaseTask):
             logger.info("backup started")
 
             path = os.path.join(
-                self._backup_path, "world_{}.tar.gz".format(datetime.now().strftime("%Y-%m-%d_%H:%M:%S"))
+                self.config.backup_path, "world_{}.tar.gz".format(datetime.now().strftime("%Y-%m-%d_%H:%M:%S"))
             )
             with tarfile.open(path, "w:gz") as f:
-                f.add(self._world_path, "world")
+                f.add(self.config.world_path, "world")
 
             logger.info("backup finished")
 
-        await asyncio.get_event_loop().run_in_executor(None, backup)
+        try:
+            await asyncio.get_event_loop().run_in_executor(None, backup)
+        except Exception as e:
+            logger.error("backup error %s", e)
 
         w = op.add_waiter(_RE_OUTPUT_SAVING_ON_DONE)
         await inf.send_cmd("save-on")
@@ -177,16 +195,18 @@ class TaskRunner:
         await self._tasks.put(task)
 
 
-async def spawn(args, backup_interval, backup_path, world_path=None):
-    if world_path is None:
-        world_path = os.getcwd()
-
+async def spawn(config: Config):
     def preexec():
         signal(SIGTERM, SIG_IGN)
         signal(SIGINT, SIG_IGN)
 
     p = await asyncio.create_subprocess_exec(
-        *args, cwd=world_path, preexec_fn=preexec, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None
+        *config.args,
+        cwd=config.world_path,
+        preexec_fn=preexec,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=None,
     )
 
     op = OutputParser(p.stdout)
@@ -203,8 +223,8 @@ async def spawn(args, backup_interval, backup_path, world_path=None):
 
     async def timer():
         while True:
-            await asyncio.sleep(backup_interval)
-            await tr.add_task(BackupTask(backup_path, world_path))
+            await asyncio.sleep(config.backup_interval)
+            await tr.add_task(BackupTask(config))
 
     asyncio.ensure_future(timer())
 
@@ -216,8 +236,9 @@ async def spawn(args, backup_interval, backup_path, world_path=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="minecraftd")
+
     parser.add_argument(
-        "-j", "--jar-path", dest="jar_path", help="path to the minecraft server jar", default="server.jar"
+        "-b", "--backup-path", dest="backup_path", help="directory where backups are stored", required=True
     )
     parser.add_argument(
         "-i",
@@ -227,18 +248,23 @@ if __name__ == "__main__":
         type=int,
         default=3600,
     )
-    parser.add_argument(
-        "-b", "--backup-path", dest="backup_path", help="directory where backups are stored", required=True
-    )
+
     parser.add_argument("-w", "--world-path", dest="world_path", help="directory where the world is", default=None)
+    parser.add_argument(
+        "-j", "--jar-path", dest="jar_path", help="path to the minecraft server jar", default="server.jar"
+    )
 
     parser.add_argument("-o", dest="opts", default=[], action="append", help="Additional arguments to the JVM")
 
     args = parser.parse_args()
-
-    args_list = ["/usr/bin/java", "-server"] + args.opts + ["-jar", args.jar_path, "nogui"]
-    logger.info("spawning minecraft: %s", args_list)
-
-    asyncio.get_event_loop().run_until_complete(
-        spawn(args_list, args.backup_interval, args.backup_path, args.world_path)
+    config = Config(
+        backup_path=args.backup_path,
+        backup_interval=args.backup_interval,
+        world_path=args.world_path,
+        jar_path=args.jar_path,
+        opts=args.opts,
     )
+
+    logger.info("spawning minecraft: %s", config.args)
+
+    asyncio.get_event_loop().run_until_complete(spawn(config))

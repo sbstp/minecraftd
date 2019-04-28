@@ -22,7 +22,7 @@ logger = logging.getLogger("minecraftd")
 
 
 class Config:
-    def __init__(self, *, backup_path, backup_interval, world_path=None, jar_path=None, opts=None):
+    def __init__(self, *, backup_path, backup_interval, backup_keep, world_path=None, jar_path=None, opts=None):
         if world_path is None:
             world_path = os.getcwd()
         if jar_path is None:
@@ -32,6 +32,7 @@ class Config:
 
         self.backup_path = backup_path
         self.backup_interval = backup_interval
+        self.backup_keep = backup_keep
         self.world_path = world_path
         self.jar_path = jar_path
 
@@ -155,6 +156,14 @@ class BackupTask(BaseTask):
             with tarfile.open(path, "w:gz") as f:
                 f.add(self.config.world_path, "world")
 
+            backups = [os.path.join(self.config.backup_path, x) for x in os.listdir(self.config.backup_path)]
+            backups_stat = [(x, os.stat(x)) for x in backups]
+            backups_stat.sort(key=lambda x: x[1].st_mtime, reverse=True)
+
+            for backup_path, _ in backups_stat[self.config.backup_keep :]:
+                logger.info("removing old backup %s", os.path.basename(backup_path))
+                os.unlink(backup_path)
+
             logger.info("backup finished")
 
         try:
@@ -248,11 +257,12 @@ if __name__ == "__main__":
         type=int,
         default=3600,
     )
+    parser.add_argument(
+        "-k", "--backup-keep", dest="backup_keep", help="number of most recent backups to keep", type=int, default=72
+    )
 
     parser.add_argument("-w", "--world-path", dest="world_path", help="directory where the world is", default=None)
-    parser.add_argument(
-        "-j", "--jar-path", dest="jar_path", help="path to the minecraft server jar", default="server.jar"
-    )
+    parser.add_argument("-j", "--jar-path", dest="jar_path", help="path to the minecraft server jar", default=None)
 
     parser.add_argument("-o", dest="opts", default=[], action="append", help="Additional arguments to the JVM")
 
@@ -260,6 +270,7 @@ if __name__ == "__main__":
     config = Config(
         backup_path=args.backup_path,
         backup_interval=args.backup_interval,
+        backup_keep=args.backup_keep,
         world_path=args.world_path,
         jar_path=args.jar_path,
         opts=args.opts,
